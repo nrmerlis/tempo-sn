@@ -10,13 +10,36 @@ interface NoteProps {
 }
 
 const MIN_SIZE = 50;
-const NOTE_PADDING = 8;
+const NOTE_PADDING = 12;
 const NOTE_PADDING_TOTAL = NOTE_PADDING * 2;
-const LINE_HEIGHT_PX = 24;
+const LINE_HEIGHT_PX = 28;
+const NOTE_FONT_SIZE = 20;
+const ROTATION_RANGE_DEG = 1.5;
+
 // Must sit between TRASH_Z_INDEX and INFO_Z_INDEX defined in Board.tsx so
 // a dragged note renders in front of the trash bucket but stays behind
 // the help icon.
 const DRAGGING_Z_INDEX = 1_000_000;
+
+// Deterministic small rotation per note id, golden-ratio scattered so
+// adjacent ids look obviously different.
+const noteRotation = (id: number): number =>
+    (((id + 1) * 137.508) % (ROTATION_RANGE_DEG * 2)) - ROTATION_RANGE_DEG;
+
+const containerStyle: CSSProperties = {
+    position: "absolute",
+};
+
+const cornerFoldStyle: CSSProperties = {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 14,
+    height: 14,
+    background: "linear-gradient(45deg, transparent 50%, rgba(0, 0, 0, 0.08) 50%)",
+    borderTopRightRadius: 4,
+    pointerEvents: "none",
+};
 
 const resizeHandleStyle: CSSProperties = {
     position: "absolute",
@@ -36,9 +59,9 @@ const baseTextStyle: CSSProperties = {
     textAlign: "center",
     wordBreak: "break-word",
     maxWidth: "100%",
-    fontSize: "inherit",
-    fontFamily: "inherit",
-    lineHeight: "1.4",
+    fontSize: NOTE_FONT_SIZE,
+    fontFamily: "'Caveat', 'Patrick Hand', system-ui, sans-serif",
+    lineHeight: 1.3,
 };
 
 const textAreaBaseStyle: CSSProperties = {
@@ -48,6 +71,7 @@ const textAreaBaseStyle: CSSProperties = {
     backgroundColor: "transparent",
     resize: "none",
     maxHeight: "100%",
+    width: "100%",
     boxSizing: "border-box",
     overflow: "auto",
     fieldSizing: "content",
@@ -81,8 +105,11 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
     const resizeStartRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
     const liveRectRef = useRef({ x: note.x, y: note.y, width: note.width, height: note.height });
 
-    // Sync committed position/size to the DOM, but skip during drag/resize
-    // so direct DOM mutations (in pointermove handlers) keep ownership.
+    const rotation = useMemo(() => noteRotation(note.id), [note.id]);
+
+    // Sync committed position/size to the outer container, but skip during
+    // drag/resize so direct DOM mutations (in pointermove handlers) keep
+    // ownership.
     useLayoutEffect(() => {
         const el = noteRef.current;
         if (!el) return;
@@ -98,21 +125,34 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
         el.style.zIndex = String(note.zIndex);
     }, [note.x, note.y, note.width, note.height, note.zIndex, isDragging, isResizing]);
 
-    const noteStyle = useMemo<CSSProperties>(() => ({
-        position: "absolute",
-        backgroundColor: note.color,
-        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08)",
-        cursor: isDragging ? "grabbing" : "grab",
-        opacity: isOverTrash ? 0.5 : 1,
-        transform: isOverTrash ? "scale(0.7)" : "scale(1)",
-        transformOrigin: "center",
-        transition: isDragging || isResizing ? "none" : "transform 0.2s, opacity 0.2s",
-        borderRadius: "4px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: NOTE_PADDING,
-    }), [note.color, isDragging, isResizing, isOverTrash]);
+    const isInteracting = isDragging || isResizing || isTextEditing;
+    const showLift = isHovered && !isInteracting && !isOverTrash;
+
+    const paperStyle = useMemo<CSSProperties>(() => {
+        const transformParts: string[] = [`rotate(${rotation}deg)`];
+        if (isOverTrash) transformParts.push("scale(0.7)");
+        else if (showLift) transformParts.push("translateY(-2px)");
+
+        return {
+            position: "absolute",
+            inset: 0,
+            backgroundColor: note.color,
+            boxShadow: showLift
+                ? "0 8px 18px rgba(0, 0, 0, 0.18), 0 2px 4px rgba(0, 0, 0, 0.10)"
+                : "0 4px 12px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08)",
+            cursor: isDragging ? "grabbing" : "grab",
+            opacity: isOverTrash ? 0.5 : 1,
+            transform: transformParts.join(" "),
+            transformOrigin: "center",
+            transition: isInteracting ? "none" : "transform 0.2s, box-shadow 0.2s, opacity 0.2s",
+            borderRadius: "4px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: NOTE_PADDING,
+            boxSizing: "border-box",
+        };
+    }, [note.color, isDragging, isInteracting, isOverTrash, showLift, rotation]);
 
     const textStyle = useMemo<CSSProperties>(() => ({
         ...readOnlyTextStyle,
@@ -212,7 +252,7 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
         onNoteEdit({ id: note.id, color });
     };
 
-    const showPicker = isHovered && !isDragging && !isResizing && !isTextEditing && !isOverTrash;
+    const showPicker = isHovered && !isInteracting && !isOverTrash;
 
     return (
         <div
@@ -223,23 +263,26 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
             onPointerEnter={() => setIsHovered(true)}
             onPointerLeave={() => setIsHovered(false)}
             onDoubleClick={() => setIsTextEditing(true)}
-            style={noteStyle}
+            style={containerStyle}
         >
             {showPicker && <ColorPicker value={note.color} onChange={handleColorChange} />}
-            {!isTextEditing && <p style={textStyle}>{note.text}</p>}
-            {isTextEditing && (
-                <textarea
-                    style={textAreaBaseStyle}
-                    value={note.text}
-                    onChange={handleTextEdit}
-                    onBlur={() => setIsTextEditing(false)}
-                    autoFocus
+            <div style={paperStyle}>
+                <div style={cornerFoldStyle} />
+                {!isTextEditing && <p style={textStyle}>{note.text}</p>}
+                {isTextEditing && (
+                    <textarea
+                        style={textAreaBaseStyle}
+                        value={note.text}
+                        onChange={handleTextEdit}
+                        onBlur={() => setIsTextEditing(false)}
+                        autoFocus
+                    />
+                )}
+                <div
+                    style={resizeHandleStyle}
+                    onPointerDown={handleResizePointerDown}
                 />
-            )}
-            <div
-                style={resizeHandleStyle}
-                onPointerDown={handleResizePointerDown}
-            />
+            </div>
         </div>
     );
 };

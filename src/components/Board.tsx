@@ -11,8 +11,24 @@ import trashIcon from "../assets/trash.svg";
 const boardStyle: CSSProperties = {
     position: "fixed",
     inset: 0,
-    backgroundColor: "#F0F0F0",
+    backgroundColor: "#F4F1EA",
+    backgroundImage: "radial-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px)",
+    backgroundSize: "20px 20px",
     userSelect: "none",
+    overflow: "hidden",
+};
+
+const emptyStateStyle: CSSProperties = {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    color: "rgba(0, 0, 0, 0.4)",
+    fontSize: 20,
+    fontFamily: "system-ui, sans-serif",
+    fontWeight: 500,
+    pointerEvents: "none",
+    textAlign: "center",
 };
 
 const trashIconStyle: CSSProperties = {
@@ -83,6 +99,10 @@ export const Board = () => {
 
     return (
         <div style={boardStyle} onDoubleClick={handleBoardDoubleClick}>
+            {notes.length === 0 && (
+                <div style={emptyStateStyle}>Double-click anywhere to add a note</div>
+            )}
+
             {notes.map(note => (
                 <Note
                     key={note.id}
