@@ -1,4 +1,4 @@
-import { useCallback, useRef, type CSSProperties, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, type CSSProperties, type MouseEvent } from "react";
 import { useNotesActions, useNotesState } from "../context/useNotes";
 import { NOTE_COLORS, type NoteColor } from "../types/notes.types";
 import { FloatingCard } from "./FloatingCard";
@@ -24,11 +24,12 @@ const emptyStateStyle: CSSProperties = {
     left: "50%",
     transform: "translate(-50%, -50%)",
     color: "rgba(0, 0, 0, 0.4)",
-    fontSize: 20,
+    fontSize: 18,
     fontFamily: "system-ui, sans-serif",
     fontWeight: 500,
     pointerEvents: "none",
     textAlign: "center",
+    lineHeight: 1.5,
 };
 
 const trashIconStyle: CSSProperties = {
@@ -65,6 +66,12 @@ const TRASH_MARGIN = 20;
 const randomNoteColor = (): NoteColor =>
     NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)];
 
+const isTypingTarget = (target: EventTarget | null): boolean => {
+    if (!(target instanceof HTMLElement)) return false;
+    if (target.isContentEditable) return true;
+    return target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+};
+
 export const Board = () => {
     const { notes, lastAddedId } = useNotesState();
     const { onNoteAdd } = useNotesActions();
@@ -75,12 +82,10 @@ export const Board = () => {
         return trashBucketRef.current?.getBoundingClientRect() ?? null;
     }, []);
 
-    const handleBoardDoubleClick = (e: MouseEvent<HTMLDivElement>) => {
-        if (e.target !== e.currentTarget) return;
-
+    const spawnNoteAt = useCallback((rawX: number, rawY: number) => {
         const { x, y } = clampNoteSpawnPosition({
-            rawX: e.clientX,
-            rawY: e.clientY,
+            rawX,
+            rawY,
             noteSize: DEFAULT_NOTE_SIZE,
             viewport: { width: window.innerWidth, height: window.innerHeight },
             trashRect: getTrashRect(),
@@ -95,12 +100,41 @@ export const Board = () => {
             text: "",
             color: randomNoteColor(),
         });
+    }, [getTrashRect, onNoteAdd]);
+
+    // Cmd/Ctrl+N to spawn a new note at the viewport centre. Skip when the
+    // user is typing in an input so the shortcut never steals keystrokes.
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            const isShortcut = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n";
+            if (!isShortcut) return;
+            if (isTypingTarget(e.target)) return;
+            e.preventDefault();
+            spawnNoteAt(
+                window.innerWidth / 2 - DEFAULT_NOTE_SIZE / 2,
+                window.innerHeight / 2 - DEFAULT_NOTE_SIZE / 2,
+            );
+        };
+        window.addEventListener("keydown", handler);
+        return () => window.removeEventListener("keydown", handler);
+    }, [spawnNoteAt]);
+
+    const handleBoardDoubleClick = (e: MouseEvent<HTMLDivElement>) => {
+        if (e.target !== e.currentTarget) return;
+        spawnNoteAt(e.clientX, e.clientY);
     };
 
     return (
-        <div style={boardStyle} onDoubleClick={handleBoardDoubleClick}>
+        <div
+            style={boardStyle}
+            role="application"
+            aria-label="Sticky notes board"
+            onDoubleClick={handleBoardDoubleClick}
+        >
             {notes.length === 0 && (
-                <div style={emptyStateStyle}>Double-click anywhere to add a note</div>
+                <div style={emptyStateStyle}>
+                    Double-click anywhere<br />or press Ctrl+N<br />to add a note
+                </div>
             )}
 
             {notes.map(note => (
@@ -115,7 +149,13 @@ export const Board = () => {
             <div style={trashContainerStyle}>
                 <Tooltip content="Drag a note here to delete it" placement="top">
                     <FloatingCard ref={trashBucketRef}>
-                        <img style={trashIconStyle} src={trashIcon} alt="Trash" />
+                        <img
+                            style={trashIconStyle}
+                            src={trashIcon}
+                            alt=""
+                            role="img"
+                            aria-label="Delete zone"
+                        />
                     </FloatingCard>
                 </Tooltip>
             </div>

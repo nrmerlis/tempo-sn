@@ -1,5 +1,6 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { useNotesActions } from "../context/useNotes";
+import { useReducedMotion } from "../hooks/useReducedMotion";
 import { NOTE_TEXT_COLOR, type NoteColor, type Note as NoteType } from "../types/notes.types";
 import { ColorPicker } from "./ColorPicker";
 
@@ -15,6 +16,8 @@ const NOTE_PADDING_TOTAL = NOTE_PADDING * 2;
 const LINE_HEIGHT_PX = 28;
 const NOTE_FONT_SIZE = 20;
 const ROTATION_RANGE_DEG = 1.5;
+const KEYBOARD_STEP = 10;
+const KEYBOARD_STEP_LARGE = 50;
 
 // Must sit between TRASH_Z_INDEX and INFO_Z_INDEX defined in Board.tsx so
 // a dragged note renders in front of the trash bucket but stays behind
@@ -93,6 +96,7 @@ const rectsOverlap = (a: SimpleRect, b: SimpleRect): boolean =>
 
 const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
     const { onNoteEdit, onNoteDelete, onBringToFront } = useNotesActions();
+    const reducedMotion = useReducedMotion();
 
     const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
@@ -105,7 +109,10 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
     const resizeStartRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
     const liveRectRef = useRef({ x: note.x, y: note.y, width: note.width, height: note.height });
 
-    const rotation = useMemo(() => noteRotation(note.id), [note.id]);
+    const rotation = useMemo(
+        () => (reducedMotion ? 0 : noteRotation(note.id)),
+        [note.id, reducedMotion],
+    );
 
     // Sync committed position/size to the outer container, but skip during
     // drag/resize so direct DOM mutations (in pointermove handlers) keep
@@ -126,7 +133,7 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
     }, [note.x, note.y, note.width, note.height, note.zIndex, isDragging, isResizing]);
 
     const isInteracting = isDragging || isResizing || isTextEditing;
-    const showLift = isHovered && !isInteracting && !isOverTrash;
+    const showLift = isHovered && !isInteracting && !isOverTrash && !reducedMotion;
 
     const paperStyle = useMemo<CSSProperties>(() => {
         const transformParts: string[] = [`rotate(${rotation}deg)`];
@@ -144,7 +151,9 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
             opacity: isOverTrash ? 0.5 : 1,
             transform: transformParts.join(" "),
             transformOrigin: "center",
-            transition: isInteracting ? "none" : "transform 0.2s, box-shadow 0.2s, opacity 0.2s",
+            transition: isInteracting || reducedMotion
+                ? "none"
+                : "transform 0.2s, box-shadow 0.2s, opacity 0.2s",
             borderRadius: "4px",
             display: "flex",
             alignItems: "center",
@@ -152,7 +161,7 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
             padding: NOTE_PADDING,
             boxSizing: "border-box",
         };
-    }, [note.color, isDragging, isInteracting, isOverTrash, showLift, rotation]);
+    }, [note.color, isDragging, isInteracting, isOverTrash, showLift, rotation, reducedMotion]);
 
     const textStyle = useMemo<CSSProperties>(() => ({
         ...readOnlyTextStyle,
@@ -248,21 +257,75 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
         onNoteEdit({ id: note.id, text: e.target.value });
     };
 
+    const handleTextAreaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === "Escape") {
+            e.preventDefault();
+            e.currentTarget.blur();
+        }
+    };
+
     const handleColorChange = (color: NoteColor) => {
         onNoteEdit({ id: note.id, color });
     };
 
+    const handleNoteKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+        // Only handle keys originating on the note container itself, not
+        // bubbled from the textarea.
+        if (e.target !== e.currentTarget) return;
+
+        switch (e.key) {
+            case "ArrowUp":
+            case "ArrowDown":
+            case "ArrowLeft":
+            case "ArrowRight": {
+                e.preventDefault();
+                const step = e.shiftKey ? KEYBOARD_STEP_LARGE : KEYBOARD_STEP;
+                let newX = note.x;
+                let newY = note.y;
+                if (e.key === "ArrowUp") newY -= step;
+                else if (e.key === "ArrowDown") newY += step;
+                else if (e.key === "ArrowLeft") newX -= step;
+                else newX += step;
+                newX = Math.max(0, Math.min(newX, window.innerWidth - note.width));
+                newY = Math.max(0, Math.min(newY, window.innerHeight - note.height));
+                if (newX !== note.x || newY !== note.y) {
+                    onBringToFront({ id: note.id });
+                    onNoteEdit({ id: note.id, x: newX, y: newY });
+                }
+                return;
+            }
+            case "Enter":
+            case "F2": {
+                e.preventDefault();
+                setIsTextEditing(true);
+                return;
+            }
+            case "Delete":
+            case "Backspace": {
+                e.preventDefault();
+                onNoteDelete({ id: note.id });
+                return;
+            }
+        }
+    };
+
     const showPicker = isHovered && !isInteracting && !isOverTrash;
+    const ariaLabel = `Note: ${note.text || "empty"}`;
 
     return (
         <div
             ref={noteRef}
+            className="note-focusable"
+            tabIndex={0}
+            role="article"
+            aria-label={ariaLabel}
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}
             onPointerMove={handlePointerMove}
             onPointerEnter={() => setIsHovered(true)}
             onPointerLeave={() => setIsHovered(false)}
             onDoubleClick={() => setIsTextEditing(true)}
+            onKeyDown={handleNoteKeyDown}
             style={containerStyle}
         >
             {showPicker && <ColorPicker value={note.color} onChange={handleColorChange} />}
@@ -274,8 +337,10 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
                         style={textAreaBaseStyle}
                         value={note.text}
                         onChange={handleTextEdit}
+                        onKeyDown={handleTextAreaKeyDown}
                         onBlur={() => setIsTextEditing(false)}
                         autoFocus
+                        aria-label="Note text"
                     />
                 )}
                 <div
