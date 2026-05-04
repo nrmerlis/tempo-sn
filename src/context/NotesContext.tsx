@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useReducer, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
 import {
     NOTE_COLORS,
     type AddNotePayload,
@@ -8,6 +8,7 @@ import {
     type Note,
     type NotesAction,
 } from "../types/notes.types";
+import { loadFromStorage, saveToStorage } from "./notesStorage";
 import {
     NotesActionsContext,
     NotesStateContext,
@@ -22,7 +23,7 @@ interface NotesState {
     lastAddedId: number | null;
 }
 
-const initialState: NotesState = {
+const defaultState: NotesState = {
     notes: [
         { id: 0, x: 300, y: 300, width: 200, height: 200, text: "Double click to edit me!", color: NOTE_COLORS[0], zIndex: 1 }
     ],
@@ -30,6 +31,19 @@ const initialState: NotesState = {
     nextZIndex: 2,
     lastAddedId: null,
 };
+
+const initState = (): NotesState => {
+    const stored = loadFromStorage();
+    if (!stored) return defaultState;
+    return {
+        notes: stored.notes,
+        nextId: stored.nextId,
+        nextZIndex: stored.nextZIndex,
+        lastAddedId: null,
+    };
+};
+
+const PERSIST_DEBOUNCE_MS = 300;
 
 const notesReducer = (state: NotesState, action: NotesAction): NotesState => {
     switch (action.type) {
@@ -75,7 +89,37 @@ const notesReducer = (state: NotesState, action: NotesAction): NotesState => {
 };
 
 export const NotesProvider = ({ children }: { children: ReactNode }) => {
-    const [state, dispatch] = useReducer(notesReducer, initialState);
+    const [state, dispatch] = useReducer(notesReducer, undefined, initState);
+
+    // Track latest state for synchronous saves on tab close
+    const stateRef = useRef(state);
+    useEffect(() => { stateRef.current = state; }, [state]);
+
+    // Debounced persist on note/counter changes
+    useEffect(() => {
+        const handle = setTimeout(() => {
+            saveToStorage({
+                notes: state.notes,
+                nextId: state.nextId,
+                nextZIndex: state.nextZIndex,
+            });
+        }, PERSIST_DEBOUNCE_MS);
+        return () => clearTimeout(handle);
+    }, [state.notes, state.nextId, state.nextZIndex]);
+
+    // Flush pending changes on tab close
+    useEffect(() => {
+        const flush = () => {
+            const latest = stateRef.current;
+            saveToStorage({
+                notes: latest.notes,
+                nextId: latest.nextId,
+                nextZIndex: latest.nextZIndex,
+            });
+        };
+        window.addEventListener("beforeunload", flush);
+        return () => window.removeEventListener("beforeunload", flush);
+    }, []);
 
     const onNoteAdd = useCallback((payload: AddNotePayload) => dispatch({ type: "ADD_NOTE", payload }), []);
     const onNoteEdit = useCallback((payload: EditNotePayload) => dispatch({ type: "EDIT_NOTE", payload }), []);
