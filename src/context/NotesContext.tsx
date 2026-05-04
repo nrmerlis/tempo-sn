@@ -1,91 +1,101 @@
-import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
-import { NOTE_COLORS, type AddNotePayload, type DeleteNotePayload, type EditNotePayload, type Note, type NotesAction } from "../types/notes.types";
-
+import { useCallback, useMemo, useReducer, type ReactNode } from "react";
+import {
+    NOTE_COLORS,
+    type AddNotePayload,
+    type BringToFrontPayload,
+    type DeleteNotePayload,
+    type EditNotePayload,
+    type Note,
+    type NotesAction,
+} from "../types/notes.types";
+import {
+    NotesActionsContext,
+    NotesStateContext,
+    type NotesActionsValue,
+    type NotesStateValue,
+} from "./useNotes";
 
 interface NotesState {
     notes: Note[];
-    prevId: number;
+    nextId: number;
+    nextZIndex: number;
     lastAddedId: number | null;
-}
-
-interface NotesContextValue {
-    notes: Note[];
-    lastAddedId: number | null;
-    onNoteEdit: (payload: EditNotePayload) => void;
-    onNoteAdd: (payload: AddNotePayload) => void;
-    onNoteDelete: (payload: DeleteNotePayload) => void;
 }
 
 const initialState: NotesState = {
     notes: [
-        { id: 0, x: 300, y: 300, width: 200, height: 200, text: "Double click to edit me!", color: NOTE_COLORS[0], zIndex: 0 }
+        { id: 0, x: 300, y: 300, width: 200, height: 200, text: "Double click to edit me!", color: NOTE_COLORS[0], zIndex: 1 }
     ],
-    prevId: 1,
+    nextId: 1,
+    nextZIndex: 2,
     lastAddedId: null,
 };
 
-const notesReducer = (state: NotesState, action: NotesAction) => {
+const notesReducer = (state: NotesState, action: NotesAction): NotesState => {
     switch (action.type) {
+        case "ADD_NOTE": {
+            const id = state.nextId;
+            const zIndex = state.nextZIndex;
+            return {
+                notes: [...state.notes, { ...action.payload, id, zIndex }],
+                nextId: id + 1,
+                nextZIndex: zIndex + 1,
+                lastAddedId: id,
+            };
+        }
         case "EDIT_NOTE": {
             return {
                 ...state,
-                notes: state.notes.map(note => (note.id === action.payload.id ? { ...note, ...action.payload, zIndex: state.prevId } : note)),
-                prevId: state.prevId + 1
-            }
-        }
-        case "ADD_NOTE": {
-            const newNote = { ...action.payload, id: state.prevId, zIndex: state.prevId };
-            return {
-                ...state,
-                notes: [...state.notes, newNote],
-                prevId: state.prevId + 1,
-                lastAddedId: state.prevId,
+                notes: state.notes.map(n =>
+                    n.id === action.payload.id ? { ...n, ...action.payload } : n
+                ),
             };
         }
         case "DELETE_NOTE": {
             return {
                 ...state,
-                notes: state.notes.filter(note => note.id !== action.payload.id)
-            }
+                notes: state.notes.filter(n => n.id !== action.payload.id),
+            };
+        }
+        case "BRING_TO_FRONT": {
+            const target = state.notes.find(n => n.id === action.payload.id);
+            if (!target || target.zIndex === state.nextZIndex - 1) return state;
+            const zIndex = state.nextZIndex;
+            return {
+                ...state,
+                notes: state.notes.map(n =>
+                    n.id === action.payload.id ? { ...n, zIndex } : n
+                ),
+                nextZIndex: zIndex + 1,
+            };
         }
         default:
             return state;
     }
-}
-
-const NotesContext = createContext<NotesContextValue | null>(null);
+};
 
 export const NotesProvider = ({ children }: { children: ReactNode }) => {
-
     const [state, dispatch] = useReducer(notesReducer, initialState);
 
-    const onNoteEdit = useCallback((payload: EditNotePayload) => dispatch({ type: "EDIT_NOTE", payload }), []);
-
     const onNoteAdd = useCallback((payload: AddNotePayload) => dispatch({ type: "ADD_NOTE", payload }), []);
-    
+    const onNoteEdit = useCallback((payload: EditNotePayload) => dispatch({ type: "EDIT_NOTE", payload }), []);
     const onNoteDelete = useCallback((payload: DeleteNotePayload) => dispatch({ type: "DELETE_NOTE", payload }), []);
+    const onBringToFront = useCallback((payload: BringToFrontPayload) => dispatch({ type: "BRING_TO_FRONT", payload }), []);
 
-    const notesContextValue: NotesContextValue = useMemo(() => {
-        return {
-            notes: state.notes,
-            lastAddedId: state.lastAddedId,
-            onNoteEdit,
-            onNoteAdd,
-            onNoteDelete,
-        }
-    }, [state, onNoteEdit, onNoteAdd, onNoteDelete])
+    const actionsValue = useMemo<NotesActionsValue>(() => ({
+        onNoteAdd, onNoteEdit, onNoteDelete, onBringToFront,
+    }), [onNoteAdd, onNoteEdit, onNoteDelete, onBringToFront]);
+
+    const stateValue = useMemo<NotesStateValue>(() => ({
+        notes: state.notes,
+        lastAddedId: state.lastAddedId,
+    }), [state.notes, state.lastAddedId]);
 
     return (
-        <NotesContext value={notesContextValue} >
-            {children}
-        </NotesContext >
-    )
-}
-
-export const useNotesContext = () => {
-    const context = useContext(NotesContext);
-    if (!context) {
-        throw new Error("useNotesContext must be used within a NotesProvider");
-    }
-    return context;
-}
+        <NotesActionsContext value={actionsValue}>
+            <NotesStateContext value={stateValue}>
+                {children}
+            </NotesStateContext>
+        </NotesActionsContext>
+    );
+};

@@ -25,10 +25,10 @@ export interface Note {
 export type AddNotePayload = Omit<Note, "id" | "zIndex">;
 export type DeleteNotePayload = { id: number };
 export type EditNotePayload = Partial<Omit<Note, "id">> & { id: number };
+export type BringToFrontPayload = { id: number };
 
 export type NotesAction =
     | { type: "ADD_NOTE"; payload: AddNotePayload }
     | { type: "DELETE_NOTE"; payload: DeleteNotePayload }
-    | { type: "EDIT_NOTE"; payload: EditNotePayload };
-
-
+    | { type: "EDIT_NOTE"; payload: EditNotePayload }
+    | { type: "BRING_TO_FRONT"; payload: BringToFrontPayload };

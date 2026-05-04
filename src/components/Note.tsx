@@ -1,14 +1,11 @@
-import { useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import type { Note as NoteType, NoteRect } from "../types/notes.types"
-import { useNotesContext } from "../context/NotesContext";
+import { memo, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from "react";
+import { useNotesActions } from "../context/useNotes";
+import type { Note as NoteType } from "../types/notes.types";
 
 interface NoteProps {
     note: NoteType;
-    isOverTrash: boolean;
-    onDrag: (id: number, x: number, y: number) => void;
-    onDrop: (id: number, noteRect: NoteRect) => void;
-    onResize: (id: number, width: number, height: number) => void;
-    onTextEdit: (id: number, text: string) => void;
+    defaultEditing: boolean;
+    getTrashRect: () => DOMRect | null;
 }
 
 const MIN_SIZE = 50;
@@ -51,36 +48,52 @@ const textAreaBaseStyle: CSSProperties = {
     fieldSizing: "content",
 };
 
-export const Note = ({ note, isOverTrash, onDrag, onDrop, onResize, onTextEdit }: NoteProps) => {
-    const { lastAddedId } = useNotesContext();
+interface SimpleRect { left: number; top: number; right: number; bottom: number; }
+
+const rectsOverlap = (a: SimpleRect, b: SimpleRect): boolean =>
+    a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+
+const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
+    const { onNoteEdit, onNoteDelete, onBringToFront } = useNotesActions();
+
     const [isDragging, setIsDragging] = useState(false);
     const [isResizing, setIsResizing] = useState(false);
-    const [isTextEditing, setIsTextEditing] = useState(lastAddedId === note.id);
+    const [isOverTrash, setIsOverTrash] = useState(false);
+    const [isTextEditing, setIsTextEditing] = useState(defaultEditing);
 
     const noteRef = useRef<HTMLDivElement>(null);
-    const offsetRef = useRef({ x: 0, y: 0 });
-    const initialSizeRef = useRef({ width: 0, height: 0 });
-    const startPosRef = useRef({ x: 0, y: 0 });
+    const dragOffsetRef = useRef({ x: 0, y: 0 });
+    const resizeStartRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
+    const liveRectRef = useRef({ x: note.x, y: note.y, width: note.width, height: note.height });
+
+    // Sync committed position/size to the DOM, but skip during drag/resize
+    // so direct DOM mutations (in pointermove handlers) keep ownership.
+    useLayoutEffect(() => {
+        const el = noteRef.current;
+        if (!el) return;
+        if (isDragging || isResizing) return;
+        el.style.left = `${note.x}px`;
+        el.style.top = `${note.y}px`;
+        el.style.width = `${note.width}px`;
+        el.style.height = `${note.height}px`;
+        el.style.zIndex = String(note.zIndex);
+    }, [note.x, note.y, note.width, note.height, note.zIndex, isDragging, isResizing]);
 
     const noteStyle = useMemo<CSSProperties>(() => ({
-        width: note.width,
-        height: note.height,
         position: "absolute",
-        top: note.y,
-        left: note.x,
-        zIndex: note.zIndex,
         backgroundColor: note.color,
         boxShadow: "0 0 5px rgb(233, 232, 232)",
         cursor: isDragging ? "grabbing" : "grab",
         opacity: isOverTrash ? 0.5 : 1,
         transform: isOverTrash ? "scale(0.7)" : "scale(1)",
-        transition: "transform 0.2s, opacity 0.2s",
+        transformOrigin: "center",
+        transition: isDragging || isResizing ? "none" : "transform 0.2s, opacity 0.2s",
         borderRadius: "4px",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         padding: NOTE_PADDING,
-    }), [note, isDragging, isOverTrash]);
+    }), [note.color, isDragging, isResizing, isOverTrash]);
 
     const textStyle = useMemo<CSSProperties>(() => ({
         ...baseTextStyle,
@@ -88,7 +101,7 @@ export const Note = ({ note, isOverTrash, onDrag, onDrop, onResize, onTextEdit }
         userSelect: "none",
         overflow: "hidden",
         display: "-webkit-box",
-        WebkitLineClamp: Math.max(1, Math.floor((note.height - NOTE_PADDING_TOTAL) / LINE_HEIGHT_PX)), // Max visible lines based on note height
+        WebkitLineClamp: Math.max(1, Math.floor((note.height - NOTE_PADDING_TOTAL) / LINE_HEIGHT_PX)),
         WebkitBoxOrient: "vertical",
         whiteSpace: "pre-wrap",
     }), [note.color, note.height]);
@@ -99,66 +112,93 @@ export const Note = ({ note, isOverTrash, onDrag, onDrop, onResize, onTextEdit }
     }), [note.color]);
 
     const handlePointerDown = (e: PointerEvent<HTMLDivElement>) => {
-        if (isResizing) return;
+        if (isResizing || isTextEditing) return;
         setIsDragging(true);
+        onBringToFront({ id: note.id });
         noteRef.current?.setPointerCapture(e.pointerId);
-        // Store click offset relative to note position
-        offsetRef.current = { x: e.clientX - note.x, y: e.clientY - note.y };
-    }
+        dragOffsetRef.current = { x: e.clientX - note.x, y: e.clientY - note.y };
+        liveRectRef.current = { x: note.x, y: note.y, width: note.width, height: note.height };
+    };
 
     const handlePointerMove = (e: PointerEvent<HTMLDivElement>) => {
-
-        if (isTextEditing) return;
+        const el = noteRef.current;
+        if (!el || isTextEditing) return;
 
         if (isDragging) {
-            const rawX = e.clientX - offsetRef.current.x;
-            const rawY = e.clientY - offsetRef.current.y;
-            // Clamp position within viewport bounds
+            const rawX = e.clientX - dragOffsetRef.current.x;
+            const rawY = e.clientY - dragOffsetRef.current.y;
             const newX = Math.max(0, Math.min(rawX, window.innerWidth - note.width));
             const newY = Math.max(0, Math.min(rawY, window.innerHeight - note.height));
-            onDrag(note.id, newX, newY);
+
+            liveRectRef.current.x = newX;
+            liveRectRef.current.y = newY;
+            // Direct DOM mutation — no React re-render, no reducer dispatch.
+            el.style.left = `${newX}px`;
+            el.style.top = `${newY}px`;
+
+            const trash = getTrashRect();
+            if (trash) {
+                const overlap = rectsOverlap(
+                    { left: newX, top: newY, right: newX + note.width, bottom: newY + note.height },
+                    trash,
+                );
+                setIsOverTrash(prev => (prev === overlap ? prev : overlap));
+            }
         }
-        
+
         if (isResizing) {
-            // Calculate size delta from initial resize position
-            const deltaX = e.clientX - startPosRef.current.x;
-            const deltaY = e.clientY - startPosRef.current.y;
-            const newWidth = Math.max(MIN_SIZE, initialSizeRef.current.width + deltaX);
-            const newHeight = Math.max(MIN_SIZE, initialSizeRef.current.height + deltaY);
-            onResize(note.id, newWidth, newHeight);
+            const dx = e.clientX - resizeStartRef.current.x;
+            const dy = e.clientY - resizeStartRef.current.y;
+            const newWidth = Math.max(MIN_SIZE, resizeStartRef.current.width + dx);
+            const newHeight = Math.max(MIN_SIZE, resizeStartRef.current.height + dy);
+            liveRectRef.current.width = newWidth;
+            liveRectRef.current.height = newHeight;
+            el.style.width = `${newWidth}px`;
+            el.style.height = `${newHeight}px`;
         }
-    }
+    };
 
     const handlePointerUp = (e: PointerEvent<HTMLDivElement>) => {
         if (isDragging) {
             setIsDragging(false);
+            setIsOverTrash(false);
             noteRef.current?.releasePointerCapture(e.pointerId);
-            onDrop(note.id, {
-                left: note.x,
-                right: note.x + note.width,
-                top: note.y,
-                bottom: note.y + note.height,
-            });
+            const { x, y, width, height } = liveRectRef.current;
+            const trash = getTrashRect();
+            const overlap = trash ? rectsOverlap(
+                { left: x, top: y, right: x + width, bottom: y + height },
+                trash,
+            ) : false;
+            if (overlap) {
+                onNoteDelete({ id: note.id });
+            } else if (x !== note.x || y !== note.y) {
+                onNoteEdit({ id: note.id, x, y });
+            }
         }
-        
+
         if (isResizing) {
             setIsResizing(false);
             noteRef.current?.releasePointerCapture(e.pointerId);
+            const { width, height } = liveRectRef.current;
+            if (width !== note.width || height !== note.height) {
+                onNoteEdit({ id: note.id, width, height });
+            }
         }
-    }
+    };
 
     const handleResizePointerDown = (e: PointerEvent<HTMLDivElement>) => {
         e.stopPropagation();
         setIsResizing(true);
+        onBringToFront({ id: note.id });
         noteRef.current?.setPointerCapture(e.pointerId);
-        startPosRef.current = { x: e.clientX, y: e.clientY };
-        initialSizeRef.current = { width: note.width, height: note.height };
-    }
+        resizeStartRef.current = { x: e.clientX, y: e.clientY, width: note.width, height: note.height };
+        liveRectRef.current = { x: note.x, y: note.y, width: note.width, height: note.height };
+    };
 
-    const handleTextEdit = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const handleTextEdit = (e: ChangeEvent<HTMLTextAreaElement>) => {
         e.stopPropagation();
-        onTextEdit(note.id, e.target.value);
-    }
+        onNoteEdit({ id: note.id, text: e.target.value });
+    };
 
     return (
         <div
@@ -171,18 +211,20 @@ export const Note = ({ note, isOverTrash, onDrag, onDrop, onResize, onTextEdit }
         >
             {!isTextEditing && <p style={textStyle}>{note.text}</p>}
             {isTextEditing && (
-                <textarea 
+                <textarea
                     style={textAreaStyle}
-                    value={note.text} 
-                    onChange={handleTextEdit} 
-                    onBlur={() => setIsTextEditing(false)} 
-                    autoFocus 
+                    value={note.text}
+                    onChange={handleTextEdit}
+                    onBlur={() => setIsTextEditing(false)}
+                    autoFocus
                 />
             )}
-            <div 
+            <div
                 style={resizeHandleStyle}
                 onPointerDown={handleResizePointerDown}
             />
         </div>
-    )
-}
+    );
+};
+
+export const Note = memo(NoteComponent);

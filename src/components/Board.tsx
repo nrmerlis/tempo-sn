@@ -1,6 +1,6 @@
-import { useRef, useState, type CSSProperties, type MouseEvent } from "react";
-import { useNotesContext } from "../context/NotesContext";
-import { NOTE_COLORS, type NoteColor, type NoteRect } from "../types/notes.types";
+import { useCallback, useRef, type CSSProperties, type MouseEvent } from "react";
+import { useNotesActions, useNotesState } from "../context/useNotes";
+import { NOTE_COLORS, type NoteColor } from "../types/notes.types";
 import { FloatingCard } from "./FloatingCard";
 import { InfoTooltip } from "./InfoTooltip";
 import { Note } from "./Note";
@@ -41,45 +41,14 @@ const randomNoteColor = (): NoteColor =>
     NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)];
 
 export const Board = () => {
-    const { notes, onNoteEdit, onNoteAdd, onNoteDelete } = useNotesContext();
+    const { notes, lastAddedId } = useNotesState();
+    const { onNoteAdd } = useNotesActions();
 
     const trashBucketRef = useRef<HTMLDivElement | null>(null);
-    const [noteOverTrash, setNoteOverTrash] = useState<number | null>(null);
 
-    const checkCollision = (noteRect: NoteRect): boolean => {
-        if (!trashBucketRef.current) return false;
-        
-        const trashRect = trashBucketRef.current.getBoundingClientRect();
-        
-        return (
-            noteRect.left < trashRect.right &&
-            noteRect.right > trashRect.left &&
-            noteRect.top < trashRect.bottom &&
-            noteRect.bottom > trashRect.top
-        );
-    };
-
-    const handleNoteDrag = (id: number, x: number, y: number, width: number, height: number) => {
-        onNoteEdit({ id, x, y });
-        
-        const noteRect: NoteRect = {
-            left: x,
-            right: x + width,
-            top: y,
-            bottom: y + height,
-        };
-        
-        const isOver = checkCollision(noteRect);
-        setNoteOverTrash(isOver ? id : null);
-    };
-
-    const handleNoteDrop = (id: number, noteRect: NoteRect) => {
-        setNoteOverTrash(null);
-
-        if (checkCollision(noteRect)) {
-            onNoteDelete({ id });
-        }
-    };
+    const getTrashRect = useCallback((): DOMRect | null => {
+        return trashBucketRef.current?.getBoundingClientRect() ?? null;
+    }, []);
 
     const handleBoardDoubleClick = (e: MouseEvent<HTMLDivElement>) => {
         if (e.target !== e.currentTarget) return;
@@ -87,8 +56,8 @@ export const Board = () => {
         let x = Math.max(0, Math.min(e.clientX, window.innerWidth - DEFAULT_NOTE_SIZE));
         let y = Math.max(0, Math.min(e.clientY, window.innerHeight - DEFAULT_NOTE_SIZE));
 
-        if (trashBucketRef.current) {
-            const trashRect = trashBucketRef.current.getBoundingClientRect();
+        const trashRect = getTrashRect();
+        if (trashRect) {
             const forbiddenLeft = trashRect.left - TRASH_MARGIN;
             const forbiddenTop = trashRect.top - TRASH_MARGIN;
             const forbiddenRight = trashRect.right + TRASH_MARGIN;
@@ -127,13 +96,10 @@ export const Board = () => {
                 <Note
                     key={note.id}
                     note={note}
-                    isOverTrash={noteOverTrash === note.id}
-                    onDrag={(id, x, y) => handleNoteDrag(id, x, y, note.width, note.height)}
-                    onDrop={handleNoteDrop}
-                    onResize={(id, width, height) => onNoteEdit({ id, width, height })}
-                    onTextEdit={(id, text) => onNoteEdit({ id, text })}
-                />)
-            )}
+                    defaultEditing={lastAddedId === note.id}
+                    getTrashRect={getTrashRect}
+                />
+            ))}
 
             <div style={trashContainerStyle}>
                 <Tooltip content="Drag a note here to delete it" placement="top">
@@ -147,5 +113,5 @@ export const Board = () => {
                 <InfoTooltip />
             </div>
         </div>
-    )
-}
+    );
+};
