@@ -1,4 +1,3 @@
-import './App.css';
 import { Board } from './components/Board';
 import { UnsupportedViewport } from './components/UnsupportedViewport';
 import { NotesProvider } from './context/NotesContext';
