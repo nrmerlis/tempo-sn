@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { notesReducer, type NotesState } from "../../src/context/notesReducer";
-import type { Note } from "../../src/types/notes.types";
+import { NOTE_COLORS, type Note } from "../../src/types/notes.types";
 
 const baseNote: Note = {
     id: 0,
@@ -9,7 +9,7 @@ const baseNote: Note = {
     width: 200,
     height: 200,
     text: "hello",
-    color: "#FFDD33",
+    color: NOTE_COLORS[0],
     zIndex: 1,
 };
 
@@ -25,10 +25,10 @@ describe("notesReducer", () => {
         test("appends a new note with the next id and zIndex", () => {
             const next = notesReducer(baseState, {
                 type: "ADD_NOTE",
-                payload: { x: 50, y: 50, width: 200, height: 200, text: "", color: "#86B8FF" },
+                payload: { x: 50, y: 50, width: 200, height: 200, text: "", color: NOTE_COLORS[1] },
             });
             expect(next.notes).toHaveLength(2);
-            expect(next.notes[1]).toMatchObject({ id: 1, zIndex: 2, color: "#86B8FF" });
+            expect(next.notes[1]).toMatchObject({ id: 1, zIndex: 2, color: NOTE_COLORS[1] });
             expect(next.nextId).toBe(2);
             expect(next.nextZIndex).toBe(3);
             expect(next.lastAddedId).toBe(1);

@@ -1,6 +1,7 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type PointerEvent } from "react";
 import { useNotesActions } from "../context/useNotes";
-import type { Note as NoteType } from "../types/notes.types";
+import { NOTE_TEXT_COLOR, type NoteColor, type Note as NoteType } from "../types/notes.types";
+import { ColorPicker } from "./ColorPicker";
 
 interface NoteProps {
     note: NoteType;
@@ -20,12 +21,12 @@ const resizeHandleStyle: CSSProperties = {
     width: 10,
     height: 10,
     cursor: "nwse-resize",
-    backgroundColor: "#b1b0b0",
+    backgroundColor: "rgba(0, 0, 0, 0.18)",
     borderRadius: "2px",
 };
 
 const baseTextStyle: CSSProperties = {
-    filter: "invert(100%)",
+    color: NOTE_TEXT_COLOR,
     margin: 0,
     padding: 0,
     textAlign: "center",
@@ -48,6 +49,15 @@ const textAreaBaseStyle: CSSProperties = {
     fieldSizing: "content",
 };
 
+const readOnlyTextStyle: CSSProperties = {
+    ...baseTextStyle,
+    userSelect: "none",
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    whiteSpace: "pre-wrap",
+};
+
 interface SimpleRect { left: number; top: number; right: number; bottom: number; }
 
 const rectsOverlap = (a: SimpleRect, b: SimpleRect): boolean =>
@@ -60,6 +70,7 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
     const [isResizing, setIsResizing] = useState(false);
     const [isOverTrash, setIsOverTrash] = useState(false);
     const [isTextEditing, setIsTextEditing] = useState(defaultEditing);
+    const [isHovered, setIsHovered] = useState(false);
 
     const noteRef = useRef<HTMLDivElement>(null);
     const dragOffsetRef = useRef({ x: 0, y: 0 });
@@ -82,7 +93,7 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
     const noteStyle = useMemo<CSSProperties>(() => ({
         position: "absolute",
         backgroundColor: note.color,
-        boxShadow: "0 0 5px rgb(233, 232, 232)",
+        boxShadow: "0 4px 12px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08)",
         cursor: isDragging ? "grabbing" : "grab",
         opacity: isOverTrash ? 0.5 : 1,
         transform: isOverTrash ? "scale(0.7)" : "scale(1)",
@@ -96,20 +107,9 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
     }), [note.color, isDragging, isResizing, isOverTrash]);
 
     const textStyle = useMemo<CSSProperties>(() => ({
-        ...baseTextStyle,
-        color: note.color,
-        userSelect: "none",
-        overflow: "hidden",
-        display: "-webkit-box",
+        ...readOnlyTextStyle,
         WebkitLineClamp: Math.max(1, Math.floor((note.height - NOTE_PADDING_TOTAL) / LINE_HEIGHT_PX)),
-        WebkitBoxOrient: "vertical",
-        whiteSpace: "pre-wrap",
-    }), [note.color, note.height]);
-
-    const textAreaStyle = useMemo<CSSProperties>(() => ({
-        ...textAreaBaseStyle,
-        color: note.color,
-    }), [note.color]);
+    }), [note.height]);
 
     const handlePointerDown = (e: PointerEvent<HTMLDivElement>) => {
         if (isResizing || isTextEditing) return;
@@ -200,19 +200,28 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
         onNoteEdit({ id: note.id, text: e.target.value });
     };
 
+    const handleColorChange = (color: NoteColor) => {
+        onNoteEdit({ id: note.id, color });
+    };
+
+    const showPicker = isHovered && !isDragging && !isResizing && !isTextEditing && !isOverTrash;
+
     return (
         <div
             ref={noteRef}
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}
             onPointerMove={handlePointerMove}
+            onPointerEnter={() => setIsHovered(true)}
+            onPointerLeave={() => setIsHovered(false)}
             onDoubleClick={() => setIsTextEditing(true)}
             style={noteStyle}
         >
+            {showPicker && <ColorPicker value={note.color} onChange={handleColorChange} />}
             {!isTextEditing && <p style={textStyle}>{note.text}</p>}
             {isTextEditing && (
                 <textarea
-                    style={textAreaStyle}
+                    style={textAreaBaseStyle}
                     value={note.text}
                     onChange={handleTextEdit}
                     onBlur={() => setIsTextEditing(false)}

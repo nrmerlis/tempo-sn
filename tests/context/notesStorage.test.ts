@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { loadFromStorage, saveToStorage } from "../../src/context/notesStorage";
-import type { Note } from "../../src/types/notes.types";
+import { NOTE_COLORS, type Note } from "../../src/types/notes.types";
 
 const STORAGE_KEY = "sticky-notes:v1";
 
@@ -11,7 +11,7 @@ const sampleNote: Note = {
     width: 200,
     height: 200,
     text: "hi",
-    color: "#FFDD33",
+    color: NOTE_COLORS[0],
     zIndex: 1,
 };
 

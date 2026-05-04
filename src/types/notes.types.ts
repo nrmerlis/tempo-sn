@@ -1,6 +1,17 @@
-export type NoteColor = "#86B8FF" | "#FFAB56" | "#FFDD33";
+export const NOTE_COLORS = [
+    "#FFE066", // yellow
+    "#FFC59E", // peach
+    "#FF9F9F", // coral
+    "#FFB3D9", // pink
+    "#D4B8FF", // lavender
+    "#A6D8FF", // sky
+    "#A8E6CF", // mint
+    "#E0E0E0", // gray
+] as const;
 
-export const NOTE_COLORS: NoteColor[] = ["#FFDD33", "#86B8FF", "#FFAB56"];
+export type NoteColor = typeof NOTE_COLORS[number];
+
+export const NOTE_TEXT_COLOR = "#222";
 
 export interface NoteRect {
     left: number;
