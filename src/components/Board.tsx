@@ -19,20 +19,28 @@ const trashIconStyle: CSSProperties = {
     width: 30,
 };
 
-const FLOATING_UI_Z_INDEX = 999999;
+// Stacking order, from bottom to top:
+//   normal notes (small zIndex from the reducer counter)
+//   < TRASH_Z_INDEX
+//   < DRAGGING_Z_INDEX (in Note.tsx; lifted only while a note is being dragged)
+//   < INFO_Z_INDEX
+// This way: a dragged note flies above the trash so the user can see it,
+// but the help icon always stays on top of any note.
+const TRASH_Z_INDEX = 999_998;
+const INFO_Z_INDEX = 1_000_001;
 
 const trashContainerStyle: CSSProperties = {
     position: "fixed",
     bottom: 10,
     right: 10,
-    zIndex: FLOATING_UI_Z_INDEX,
+    zIndex: TRASH_Z_INDEX,
 };
 
 const infoButtonContainerStyle: CSSProperties = {
     position: "fixed",
     top: 10,
     right: 10,
-    zIndex: FLOATING_UI_Z_INDEX,
+    zIndex: INFO_Z_INDEX,
 };
 
 const DEFAULT_NOTE_SIZE = 200;

@@ -13,6 +13,10 @@ const MIN_SIZE = 50;
 const NOTE_PADDING = 8;
 const NOTE_PADDING_TOTAL = NOTE_PADDING * 2;
 const LINE_HEIGHT_PX = 24;
+// Must sit between TRASH_Z_INDEX and INFO_Z_INDEX defined in Board.tsx so
+// a dragged note renders in front of the trash bucket but stays behind
+// the help icon.
+const DRAGGING_Z_INDEX = 1_000_000;
 
 const resizeHandleStyle: CSSProperties = {
     position: "absolute",
@@ -82,7 +86,11 @@ const NoteComponent = ({ note, defaultEditing, getTrashRect }: NoteProps) => {
     useLayoutEffect(() => {
         const el = noteRef.current;
         if (!el) return;
-        if (isDragging || isResizing) return;
+        if (isDragging || isResizing) {
+            // Lift the active note above the floating UI (trash, help icon).
+            el.style.zIndex = String(DRAGGING_Z_INDEX);
+            return;
+        }
         el.style.left = `${note.x}px`;
         el.style.top = `${note.y}px`;
         el.style.width = `${note.width}px`;
