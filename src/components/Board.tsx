@@ -5,6 +5,7 @@ import { FloatingCard } from "./FloatingCard";
 import { InfoTooltip } from "./InfoTooltip";
 import { Note } from "./Note";
 import { Tooltip } from "./Tooltip";
+import { clampNoteSpawnPosition } from "./boardHelpers";
 import trashIcon from "../assets/trash.svg";
 
 const boardStyle: CSSProperties = {
@@ -53,32 +54,14 @@ export const Board = () => {
     const handleBoardDoubleClick = (e: MouseEvent<HTMLDivElement>) => {
         if (e.target !== e.currentTarget) return;
 
-        let x = Math.max(0, Math.min(e.clientX, window.innerWidth - DEFAULT_NOTE_SIZE));
-        let y = Math.max(0, Math.min(e.clientY, window.innerHeight - DEFAULT_NOTE_SIZE));
-
-        const trashRect = getTrashRect();
-        if (trashRect) {
-            const forbiddenLeft = trashRect.left - TRASH_MARGIN;
-            const forbiddenTop = trashRect.top - TRASH_MARGIN;
-            const forbiddenRight = trashRect.right + TRASH_MARGIN;
-            const forbiddenBottom = trashRect.bottom + TRASH_MARGIN;
-
-            const noteRight = x + DEFAULT_NOTE_SIZE;
-            const noteBottom = y + DEFAULT_NOTE_SIZE;
-            const overlaps =
-                x < forbiddenRight && noteRight > forbiddenLeft &&
-                y < forbiddenBottom && noteBottom > forbiddenTop;
-
-            if (overlaps) {
-                const pushUp = noteBottom - forbiddenTop;
-                const pushLeft = noteRight - forbiddenLeft;
-                if (pushUp <= pushLeft) {
-                    y = Math.max(0, forbiddenTop - DEFAULT_NOTE_SIZE);
-                } else {
-                    x = Math.max(0, forbiddenLeft - DEFAULT_NOTE_SIZE);
-                }
-            }
-        }
+        const { x, y } = clampNoteSpawnPosition({
+            rawX: e.clientX,
+            rawY: e.clientY,
+            noteSize: DEFAULT_NOTE_SIZE,
+            viewport: { width: window.innerWidth, height: window.innerHeight },
+            trashRect: getTrashRect(),
+            trashMargin: TRASH_MARGIN,
+        });
 
         onNoteAdd({
             x,
